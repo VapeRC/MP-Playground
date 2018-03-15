@@ -14,3 +14,8 @@ This is a demonstration of simple motion planning in TORCS simulator. All requir
  * start new race via Race->Quick Race->New race
  * start the AI client `python snakeoil.py`
  * press Fn+F2 to change the drivers view
+
+## Development
+ * All driving logic can be extended by customizing the drive function in the snakeoil.py file.
+ * Information about the available inputs can be found here: https://arxiv.org/abs/1304.1672
+ * Keep in mind that some of the inputs available in the simulation won't be available on the actual car.
