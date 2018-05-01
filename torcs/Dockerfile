@@ -1,4 +1,4 @@
-from ubuntu:xenial 
+FROM ubuntu:xenial
 
 MAINTAINER amelkonyan <sasha.melkonyan@gmail.com>
 
@@ -34,6 +34,7 @@ RUN apt-get install -y \
     libav-tools \
     xorg-dev \
     python-opengl \
+    python3 \
     libboost-all-dev \
     libsdl2-dev \
     swig \
