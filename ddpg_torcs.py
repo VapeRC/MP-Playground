@@ -179,7 +179,7 @@ def playGame(actor, critic, train=False):
 
             a_t_original = actor.model.predict(s_t.reshape(1, s_t.shape[0]))
 
-            noise_t[0][0] = max(epsilon, 0) * ou.function(a_t_original[0][0], 0.0, 0.60, 0.30)
+            noise_t[0][0] = train * max(epsilon, 0) * ou.function(a_t_original[0][0], 0.0, 0.60, 0.30)
             #noise_t[0][1] = train * max(epsilon, 0) * ou.function(a_t_original[0][1], 0.5, 1.00, 0.10)
             #noise_t[0][2] = train * max(epsilon, 0) * ou.function(a_t_original[0][2], -0.1, 1.00, 0.05)
 

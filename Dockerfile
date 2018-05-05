@@ -4,6 +4,8 @@ MAINTAINER amelkonyan <sasha.melkonyan@gmail.com>
 
 # Install system libraries
 RUN apt-get update
+
+# Install system libraries for TORCS
 RUN apt-get install -y \
     libglib2.0-dev \
     libgl1-mesa-dev \
@@ -39,7 +41,12 @@ RUN apt-get install -y \
     libsdl2-dev \
     swig \
     vim 
-    
+
+# Install system libraries for deep learning
+RUN apt-get install -y \
+    python3-pip
+
+
 WORKDIR "/root"
 
 RUN git clone https://github.com/fmirus/torcs-1.3.7.git && \
@@ -51,6 +58,10 @@ RUN git clone https://github.com/fmirus/torcs-1.3.7.git && \
     cd /root
 
 WORKDIR "/root/vaperc"
+
+ADD requirements.txt requirements.txt
+
+RUN pip3 install -r requirements.txt
 
 CMD ["/bin/bash"]
 
