@@ -10,19 +10,20 @@ from ddpg.ReplayBuffer import ReplayBuffer
 from torcs.gym import TorcsEnv
 
 
-np.random.seed(1337)
+BATCH_SIZE = 32 # Size of a training batch
+BUFFER_SIZE = 100000 # Size of the replay buffer
+GAMMA = 0.99
 
-BATCH_SIZE = 32
-EXPLORE = 100000.
+EXPLORE = 100000. # Number of steps during which we continue to explore new actions
 
-action_dim = 1 #3  # Steering/Acceleration/Brake
+action_dim = 1 #3  # Steering (opt. Acceleration/Brake)
 state_dim = 2 #29  # of sensors input
 
 
 def create_networks():
     TAU = 0.001  # Target Network HyperParameters
     LRA = 0.0001  # Learning rate for Actor
-    LRC = 0.001  # Lerning rate for Critic
+    LRC = 0.001  # Learning rate for Critic
 
 
     #Tensorflow GPU optimization
@@ -57,25 +58,32 @@ def viz(actor, critic, mode='actor'):
         for j, dist in enumerate(dists):
             state = np.stack((angle, dist))
             state = state.reshape(1, state.shape[0])
-            action = actor.model.predict(state)
+            action = actor.target_model.predict(state)
             if mode == 'actor':
                 val = action
             else:
-                val = critic.model.predict([state, action])
+                val = critic.target_model.predict([state, action])
             vals[i][j] = val
     angles, dists = np.meshgrid(angles, dists)
 
     import matplotlib.pyplot as plt
     from matplotlib import cm
-    from mpl_toolkits.mplot3d import Axes3D
     fig = plt.figure()
-    ax = fig.add_subplot(111, projection='3d')
-    ax.set_xlabel('angle')
-    ax.set_ylabel('dist')
-    surf = ax.plot_surface(angles, dists, vals, cmap=cm.coolwarm)
+    #ax = fig.add_subplot(111, projection='3d')
+    plt.title('dist x angle -> steering')
+    plt.xlabel('angle')
+    plt.ylabel('dist')
+    #surf = ax.countourf(dists, angles, vals, cmap=cm.coolwarm)
+    surf = plt.contourf(dists, angles, vals, cmap=cm.coolwarm)
     fig.colorbar(surf, shrink=0.5, aspect=5)
     plt.show()
 
+
+def viz_model(m, name='model'):
+    from keras.utils import plot_model
+    plot_model(m, to_file=name+'.png')
+    with open(name+'.txt', 'w') as f:
+        m.summary(print_fn=lambda l: f.write(l+'\n'))
 
 def viz_noise(n_samples = 1000, iter = 0.):
     actions = np.linspace(-1, 1, 20)
@@ -90,8 +98,50 @@ def viz_noise(n_samples = 1000, iter = 0.):
     plt.show()
 
 
+def test_speed(actor, critic, n_samples = 200):
+    s_t = np.hstack((np.random.uniform(-1, 1), np.random.uniform(-1, 1)))
+    buff = ReplayBuffer(BUFFER_SIZE)
+    loss = 0
+    import time
+    print('Speed test started')
+    time_start = time.time() * 1000
+    for i in range(n_samples):
+        a_t = actor.model.predict(s_t.reshape(1, s_t.shape[0]))
+
+        s_t1 = s_t + np.random.uniform(-0.1, 0.1, s_t.shape)
+        r = np.random.randint(-10, 10)
+
+        buff.add(s_t, a_t[0], r, s_t1, False)
+
+        # Do the batch update
+        batch = buff.getBatch(BATCH_SIZE)
+        states = np.asarray([e[0] for e in batch])
+        actions = np.asarray([e[1] for e in batch])
+        rewards = np.asarray([e[2] for e in batch])
+        new_states = np.asarray([e[3] for e in batch])
+        dones = np.asarray([e[4] for e in batch])
+        y_t = np.asarray([e[1] for e in batch])
+
+        target_q_values = critic.target_model.predict([new_states, actor.target_model.predict(new_states)])
+
+        for k in range(len(batch)):
+            if dones[k]:
+                y_t[k] = rewards[k]
+            else:
+                y_t[k] = rewards[k] + GAMMA * target_q_values[k]
+
+        loss += critic.model.train_on_batch([states, actions], y_t)
+        a_for_grad = actor.model.predict(states)
+        grads = critic.gradients(states, a_for_grad)
+        actor.train(states, grads)
+        actor.target_train()
+        critic.target_train()
+    time_end = time.time() * 1000
+    av_time = (time_end - time_start) / n_samples
+    print('Av. time per step {}ms'.format(av_time))
+
+
 def playGame(actor, critic, train=False):
-    BUFFER_SIZE = 100000
     GAMMA = 0.99
 
     vision = False
@@ -129,7 +179,7 @@ def playGame(actor, critic, train=False):
 
             a_t_original = actor.model.predict(s_t.reshape(1, s_t.shape[0]))
 
-            noise_t[0][0] = train * max(epsilon, 0) * ou.function(a_t_original[0][0], 0.0, 0.60, 0.30)
+            noise_t[0][0] = max(epsilon, 0) * ou.function(a_t_original[0][0], 0.0, 0.60, 0.30)
             #noise_t[0][1] = train * max(epsilon, 0) * ou.function(a_t_original[0][1], 0.5, 1.00, 0.10)
             #noise_t[0][2] = train * max(epsilon, 0) * ou.function(a_t_original[0][2], -0.1, 1.00, 0.05)
 
@@ -175,13 +225,14 @@ def playGame(actor, critic, train=False):
             total_reward += r_t
             s_t = s_t1
         
-            print("Episode", n_episode, "Step", step, "Action", a_t, "Reward", r_t, "Loss", loss)
+            if np.mod(n_episode, 10) == 0:
+                print("Episode", n_episode, "Step", step, "Action", a_t, "Reward", r_t, "Loss", loss)
         
             step += 1
             if done:
                 break
 
-        if np.mod(n_episode, 100) == 0:
+        if np.mod(n_episode, 3) == 0:
             if (train):
                 print("Now we save model")
                 actor.model.save_weights("data/actormodel.h5", overwrite=True)
@@ -209,7 +260,10 @@ if __name__ == "__main__":
     sp_run.set_defaults(mode='run')
     sp_viz = sp.add_parser('viz', help='Visualize critic and agent')
     sp_viz.set_defaults(mode='viz')
-    sp_viz.add_argument('func', choices=('actor', 'critic', 'noise'))
+    sp_viz.add_argument('func', choices=('actor', 'critic', 'models', 'noise'))
+    sp_speed = sp.add_parser('speedtest', help='Test av. computation time per step')
+    sp_speed.set_defaults(mode='speedtest')
+
     args = parser.parse_args()
     actor, critic = create_networks()
     if args.mode == 'train':
@@ -219,5 +273,11 @@ if __name__ == "__main__":
     elif args.mode == 'viz':
         if args.func == 'noise':
             viz_noise()
+        elif args.func == 'models':
+            viz_model(actor.model, 'actor')
+            viz_model(critic.model, 'critic')
         else:
             viz(actor, critic, mode=args.func)
+
+    elif args.mode == 'speedtest':
+        test_speed(actor, critic)
